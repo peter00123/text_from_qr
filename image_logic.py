@@ -21,6 +21,18 @@ class ImageProcessorLogic:
     def __init__(self):
         self.current_image = None
         self.image_path = None
+    
+    def open_portfolio_link(self):
+        """Opens the portfolio URL in a web browser."""
+        # Corrected URL opening logic
+        url = "https://github.com/peter00123/portfolio"
+        try:
+            webbrowser.open_new_tab(url)
+            messagebox.showinfo("Portfolio", f"Opening link in your browser:\n{url}")
+        except Exception as e:
+            print(f"Error opening browser: {e}")
+            messagebox.showerror("Error", "Could not open web browser.")
+
 
     def load_image(self, file_path):
         """Loads and returns the PIL Image object and calculated preview dimensions."""
@@ -28,7 +40,7 @@ class ImageProcessorLogic:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         self.image_path = file_path
-        self.current_image = Image.open(file_path)
+        self.current_image = Image.open(file_path).convert("L") # Convert to Grayscale on load
         
         max_size = (400, 300)
         preview_img = self.current_image.copy()
@@ -42,61 +54,65 @@ class ImageProcessorLogic:
             raise ValueError("No image loaded for processing.")
             
         # 1. Resize the actual image (This small image will be used for matrix generation)
+        # Using NEAREST resampling for pixel-perfect sampling on small images
         resized_image = self.current_image.resize((resize_dim, resize_dim), Image.Resampling.NEAREST)
         
         return resized_image
 
-    def calculate_display_params(self, matrix_image):
-        """Calculates the display parameters based on the newly created matrix image."""
-        # The display parameters are now based on the matrix image size
-        
-        display_w = matrix_image.width
-        display_h = matrix_image.height
-        
-        # 3. Calculate text box character dimensions (approximate)
-        text_width_chars = max(1, display_w // CHAR_WIDTH_PX)
-        text_height_lines = max(1, display_h // CHAR_HEIGHT_PX)
+    # --- NEW HELPER FUNCTION TO GET PIXEL BRIGHTNESS (Necessary for conversion) ---
+    def _get_pixel_brightness(self, image, x, y):
+        """
+        Gets the pixel brightness (0-255) from a grayscale image.
+        Assumes the input image is already converted to 'L' (Grayscale).
+        """
+        return image.getpixel((x, y))
 
-        return display_w, display_h, text_width_chars, text_height_lines
-
+    # --- UPDATED CHARACTER MATRIX GENERATION METHOD ---
     def generate_character_matrix(self, resized_image):
         """
-        Converts the resized image into a character matrix based on pixel brightness.
-        Returns the matrix (2D list of chars) and the matrix as a single string.
+        Generates the character matrix based on the user's specific mapping:
+        Bright (Original '1') -> '0 ' 
+        Dark (Original '0') -> '  ' (two spaces)
         """
-        image_mono = resized_image.convert('L')  # Convert to grayscale
-        width, height = image_mono.size
-        
-        # Simple ASCII representation (darker pixels = denser characters)
-        # Using 0/1 for binary QR code-like representation
-        # You can expand this if you want a true ASCII art effect
-        CHAR_MAP = ('1', '0') # 0 for dark (low value), 1 for bright (high value)
+        # Character map: Index 0 for Dark (0-127), Index 1 for Bright (128-255)
+        # We ensure every character representation is exactly two spaces wide.
+        NEW_CHAR_MAP = ['0 ','  '] # Dark maps to '  '; Bright maps to '0 '
 
         matrix = []
-        matrix_string = []
+        full_text_output = ""
         
-        # Note: We iterate over the small, resized image
-        for y in range(height):
-            row = []
-            row_string = []
-            for x in range(width):
-                brightness = image_mono.getpixel((x, y))
-                
-                # Assign 0 for dark pixels (value < 128) and 1 for bright pixels
-                char = CHAR_MAP[0] if brightness < 128 else CHAR_MAP[1]
-                
-                row.append(char)
-                row_string.append(char)
-            matrix.append(row)
-            matrix_string.append(" ".join(row_string)) # Add spaces for readability
-            
-        full_text_output = "\n".join(matrix_string)
+        width, height = resized_image.size 
 
+        for y in range(height):
+            row = ""
+            for x in range(width):
+                
+                # Check pixel brightness
+                brightness = self._get_pixel_brightness(resized_image, x, y)
+                
+                # Decide if the pixel is Dark (0) or Bright (1)
+                char_index = 0 if brightness < 128 else 1 
+                
+                character = NEW_CHAR_MAP[char_index]
+                
+                # Store the logical index (0 or 1) in the matrix for image generation later
+                # We store '0' or ' ' (space) as single characters in the matrix for image drawing
+                # This is a temporary list to correctly map to the image drawing logic.
+                matrix_char = ' ' if char_index == 0 else '0' 
+                row += matrix_char
+                
+                # Build the final text output string (using the two-space width)
+                full_text_output += character
+                
+            matrix.append(list(row)) # Convert string row to list for 2D matrix structure
+            full_text_output += "\n"
+            
         return matrix, full_text_output
 
     def create_matrix_image(self, matrix):
         """
-        Creates a visual image from the character matrix. (User's request)
+        Creates a visual image from the character matrix. 
+        Note: The matrix now contains single characters ('0' or ' ') for drawing.
         """
         rows = len(matrix)
         cols = len(matrix[0])
@@ -109,10 +125,8 @@ class ImageProcessorLogic:
 
         # Load a font
         try:
-            # Attempt to load a common font
             font = ImageFont.truetype("arial.ttf", FONT_SIZE)
         except:
-            # Fallback to default font
             font = ImageFont.load_default()
 
         # Draw each character
@@ -121,19 +135,18 @@ class ImageProcessorLogic:
                 char = str(matrix[y][x])
                 
                 # Calculate position to center the text in the cell
-                x_pos = x * CELL_SIZE + (CELL_SIZE - FONT_SIZE) // 2
-                y_pos = y * CELL_SIZE + (CELL_SIZE - FONT_SIZE) // 2
-                
-                # Set color based on content (e.g., black for '0', gray for '1')
-                fill_color = "black" if char == '0' else "gray"
-                
-                draw.text((x_pos, y_pos), char, fill=fill_color, font=font)
+                # Draw the character only if it's '0' (The ' ' character remains transparent/white background)
+                if char == '0':
+                    x_pos = x * CELL_SIZE + (CELL_SIZE - FONT_SIZE) // 2
+                    y_pos = y * CELL_SIZE + (CELL_SIZE - FONT_SIZE) // 2
+                    
+                    fill_color = "black"
+                    draw.text((x_pos, y_pos), char, fill=fill_color, font=font)
         
         return image
 
     def save_image(self, image_to_save):
         """Asks user for save location and saves the processed image."""
-        # Now saves the visually created matrix image
         default_filename = f"matrix_preview_{image_to_save.width}x{image_to_save.height}.png"
         
         file_path = filedialog.asksaveasfilename(
@@ -148,11 +161,14 @@ class ImageProcessorLogic:
             return True
         return False
         
-    def open_portfolio_link(self):
-        """Opens the portfolio URL in a web browser."""
-        url = "hub.com/peter00123/portfolio"
-        if not url.startswith(('http://', 'https://')):
-            url = 'http://' + url
-            
-        webbrowser.open_new_tab(url)
-        messagebox.showinfo("Portfolio", f"Opening link in your browser:\n{url}")
+    def calculate_display_params(self, matrix_image):
+        """Calculates the display parameters based on the newly created matrix image."""
+        
+        display_w = matrix_image.width
+        display_h = matrix_image.height
+        
+        # 3. Calculate text box character dimensions (approximate)
+        text_width_chars = max(1, display_w // CHAR_WIDTH_PX)
+        text_height_lines = max(1, display_h // CHAR_HEIGHT_PX)
+
+        return display_w, display_h, text_width_chars, text_height_lines
