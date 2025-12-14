@@ -2,12 +2,52 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import os
-# New import for Drag-and-Drop functionality
-# Import the main class and constant from the installed package
-from tkinterdnd2 import TkinterDnD, DND_ALL
+import webbrowser # For opening the external link
+from tkinterdnd2 import DND_ALL, TkinterDnD 
 
+# --- Tooltip Class for Temporary Pop-up Message ---
+class Tooltip:
+    """Creates a temporary, non-blocking pop-up message near a widget."""
+    def __init__(self, widget, text, delay_ms=3000):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self.tip_window = None
+        self.timeout_id = None
+        self.show()
 
+    def show(self):
+        """Display the tooltip message."""
+        if self.tip_window or not self.widget.winfo_exists():
+            return
+            
+        # Get coordinates of the widget
+        x = self.widget.winfo_rootx() + self.widget.winfo_width()
+        y = self.widget.winfo_rooty()
 
+        # Create the pop-up window
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True) # Remove window decorations (border, title bar)
+        tw.wm_geometry("+%d+%d" % (x, y))
+
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                         font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+        
+        # Set a timeout to automatically destroy the window
+        self.timeout_id = self.widget.after(self.delay_ms, self.hide)
+
+    def hide(self):
+        """Hide the tooltip message."""
+        if self.tip_window:
+            self.tip_window.destroy()
+        self.tip_window = None
+        if self.timeout_id:
+            self.widget.after_cancel(self.timeout_id)
+            self.timeout_id = None
+
+# --- Main Application Classes ---
 
 class ImageProcessorGUI:
     def __init__(self, root):
@@ -16,15 +56,56 @@ class ImageProcessorGUI:
         self.root.geometry("500x700")
         
         # --- Variables ---
-        self.current_image = None  # Holds the PIL Image object
+        self.current_image = None
         self.image_path = None
         self.photo = None
+        
+        # --- Top Bar for the 'How to Use' Button ---
+        self.top_bar = tk.Frame(root, height=30)
+        self.top_bar.pack(fill=tk.X, padx=10, pady=(5, 0))
+        self.setup_top_bar(self.top_bar)
         
         # --- Setup Main Container ---
         self.main_frame = tk.Frame(root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
         self.setup_main_screen(self.main_frame)
+        
+    def setup_top_bar(self, frame):
+        """Sets up the 'How to Use' button and packs it to the top-right."""
+        
+        # Push all other elements to the left
+        tk.Label(frame).pack(side=tk.LEFT, expand=True) 
+
+        self.how_to_use_button = tk.Button(
+            frame, 
+            text="ⓘ How to Use", 
+            command=self.show_help,
+            relief=tk.FLAT, # Flat look for a clean design
+            fg="blue"
+        )
+        self.how_to_use_button.pack(side=tk.RIGHT)
+        
+        # Show the pop-up message immediately on launch
+        self.root.after(100, lambda: self.show_tooltip_popup(self.how_to_use_button))
+
+
+    def show_tooltip_popup(self, widget):
+        """Shows the temporary pop-up message near the widget."""
+        message = "Click here for instructions or visit the portfolio link!"
+        Tooltip(widget, message, delay_ms=4000) # Show for 4 seconds
+
+    def show_help(self):
+        """Opens the portfolio link in the web browser."""
+        url = "hub.com/peter00123/portfolio"
+        # Prepend 'http://' if the URL doesn't have a scheme, as webbrowser requires it
+        if not url.startswith(('http://', 'https://')):
+            url = 'http://' + url
+            
+        # Open the link
+        webbrowser.open_new_tab(url)
+        messagebox.showinfo("Portfolio", f"Opening link in your browser:\n{url}")
+
 
     def setup_main_screen(self, frame):
         """Sets up the widgets for the image loading and adjustment screen."""
@@ -63,19 +144,15 @@ class ImageProcessorGUI:
         # Submit button
         tk.Button(frame, text="Submit & Resize", command=self.submit, bg="green", fg="white").pack(pady=20)
     
-    # --- Image Loading Handlers ---
-    
+    # --- Image Loading Handlers (Kept from the multi-screen structure) ---
     def browse_image(self, event=None):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")])
         if file_path:
             self.load_image(file_path)
     
     def drop_image(self, event):
-        file_path = event.data.strip()
-        if file_path.startswith('{') and file_path.endswith('}'):
-            file_path = file_path[1:-1]
-        if ' ' in file_path:
-             file_path = file_path.split(' ')[0]
+        file_path = event.data.strip().strip('{}')
+        if ' ' in file_path: file_path = file_path.split(' ')[0]
              
         if os.path.isfile(file_path):
             self.load_image(file_path)
@@ -83,22 +160,15 @@ class ImageProcessorGUI:
             messagebox.showerror("Error", f"Invalid file path dropped: {file_path}")
     
     def load_image(self, file_path):
-        """Loads and displays the image."""
         self.image_path = file_path
         try:
             self.current_image = Image.open(file_path)
-            
-            # Preview size (fixed for display)
             max_size = (400, 300)
-            
-            # Create a thumbnail for the preview label
             preview_img = self.current_image.copy()
             preview_img.thumbnail(max_size)
-            
             self.photo = ImageTk.PhotoImage(preview_img)
             self.image_label.config(image=self.photo, text="")
-            self.image_label.image = self.photo # Keep reference
-            
+            self.image_label.image = self.photo
         except Exception as e:
             messagebox.showerror("Error Loading Image", f"Could not load image: {e}")
             self.image_label.config(image=None, text="Error loading image.\nClick to browse.")
@@ -108,22 +178,15 @@ class ImageProcessorGUI:
         self.slider_value.config(text=f"Value: {value}")
     
     def submit(self):
-        """Processes the image and switches to the result screen."""
         if not self.current_image:
             messagebox.showerror("Error", "Please select an image before submitting.")
             return
             
         resize_dim = self.slider.get()
-        
-        # 1. Resize the Image (The Core Logic)
         try:
-            # We resize the original image to the square dimension specified by the slider.
             resized_image = self.current_image.resize((resize_dim, resize_dim), Image.Resampling.NEAREST)
-        
-            # 2. Hide the main frame and show the result screen
             self.main_frame.pack_forget()
             
-            # Create and show the result screen
             self.result_screen = ResultScreen(
                 self.root, 
                 resized_image, 
@@ -133,34 +196,28 @@ class ImageProcessorGUI:
             
         except Exception as e:
             messagebox.showerror("Processing Error", f"Could not resize image: {e}")
-            self.main_frame.pack(fill=tk.BOTH, expand=True) # Show main screen if error occurs
+            self.main_frame.pack(fill=tk.BOTH, expand=True)
 
     def go_back_to_main(self):
-        """Switches back from the result screen to the main screen."""
         self.result_screen.pack_forget()
         self.main_frame.pack(fill=tk.BOTH, expand=True)
-        # Re-display the loaded image on the main screen after coming back
         if self.image_path:
              self.load_image(self.image_path)
 
 
 class ResultScreen(tk.Frame):
-    """A separate screen to display the resized image and save/redo buttons."""
     def __init__(self, master, image_to_preview, redo_callback):
         super().__init__(master)
         self.resized_image = image_to_preview
         self.redo_callback = redo_callback
-        self.photo = None # To hold the ImageTk reference
-
+        self.photo = None 
         self.setup_result_screen()
 
     def setup_result_screen(self):
         tk.Label(self, text="Image Preview (Resized)", font=("Arial", 16, "bold")).pack(pady=10)
 
-        # 1. Display the preview
-        # Scale up the small image for better viewing in the GUI, using NEAREST for sharp pixels
         preview_width = 300 
-        scale_factor = preview_width // self.resized_image.width
+        scale_factor = max(1, preview_width // self.resized_image.width)
         display_img = self.resized_image.resize(
             (self.resized_image.width * scale_factor, self.resized_image.height * scale_factor), 
             Image.Resampling.NEAREST
@@ -169,186 +226,45 @@ class ResultScreen(tk.Frame):
         self.photo = ImageTk.PhotoImage(display_img)
         preview_label = tk.Label(self, image=self.photo, text="")
         preview_label.pack(pady=10)
-        preview_label.image = self.photo # Keep reference
+        preview_label.image = self.photo
         
-        tk.Label(self, text=f"Original Size: ({self.resized_image.width}x{self.resized_image.height})").pack(pady=5)
+        tk.Label(self, text=f"Resized to: ({self.resized_image.width}x{self.resized_image.height})").pack(pady=5)
 
-        # 2. Button Frame
         button_frame = tk.Frame(self)
         button_frame.pack(pady=30)
 
-        # Redo Button
         tk.Button(
             button_frame, 
             text="Redo (Go Back)", 
             command=self.redo_callback,
-            bg="orange", 
-            fg="white",
-            padx=20,
-            pady=10
+            bg="orange", fg="white", padx=20, pady=10
         ).pack(side=tk.LEFT, padx=20)
 
-        # Download Button
         tk.Button(
             button_frame, 
             text="Download & Save", 
             command=self.download_image,
-            bg="blue", 
-            fg="white",
-            padx=20,
-            pady=10
+            bg="blue", fg="white", padx=20, pady=10
         ).pack(side=tk.LEFT, padx=20)
 
     def download_image(self):
-        """Asks the user for a save location and saves the resized image."""
-        
-        # Suggest a default filename based on the new size
         default_filename = f"resized_{self.resized_image.width}x{self.resized_image.height}.png"
         
         file_path = filedialog.asksaveasfilename(
             defaultextension=".png",
             initialfile=default_filename,
-            filetypes=[
-                ("PNG files", "*.png"),
-                ("JPEG files", "*.jpg"),
-                ("All files", "*.*")
-            ]
+            filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")]
         )
 
         if file_path:
             try:
-                # Save the actual resized image (not the scaled-up preview)
                 self.resized_image.save(file_path)
                 messagebox.showinfo("Success", f"Image successfully saved to:\n{file_path}")
             except Exception as e:
                 messagebox.showerror("Save Error", f"Could not save image: {e}")
 
 if __name__ == "__main__":
-    # *** IMPORTANT CHANGE: Use TkinterDnD.Tk() for Drag-and-Drop ***
-    root = TkinterDnD.Tk()
-    app = ImageProcessorGUI(root)
-    root.mainloop()
-# Then, when creating the root window, you use:
-# root = TkinterDnD.Tk()
-
-# Change the base class of the GUI to inherit from the DnD-enabled Tkinter
-class ImageProcessorGUI:
-    # Use TkinterDnD.Tk() instead of tk.Tk() later
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Image Processor")
-        self.root.geometry("500x700")
-        self.image_path = None
-        self.photo = None
-        
-        # Image display area with drag and drop
-        self.image_label = tk.Label(
-            root, text="Drag & Drop Image Here\nor Click to Browse",
-            bg="lightgray", height=10, width=50
-        )
-        self.image_label.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
-        self.image_label.bind("<Button-1>", self.browse_image)
-        
-        # --- CORRECTED DnD Bindings ---
-        # 1. Register the label as a drop target for files (DND_ALL)
-        self.image_label.drop_target_register(DND_ALL) 
-        # 2. Bind the correct virtual event for drop
-        self.image_label.dnd_bind('<<Drop>>', self.drop_image) 
-        # ------------------------------
-        
-        # Browse button
-        tk.Button(root, text="Browse Image", command=self.browse_image).pack(pady=5)
-        
-        # Slider
-        tk.Label(root, text="Adjustment:").pack()
-        self.slider = tk.Scale(root, from_=0, to=100, orient=tk.HORIZONTAL, length=300)
-        self.slider.pack(pady=5, padx=10, fill=tk.X)
-        self.slider_value = tk.Label(root, text="Value: 0")
-        self.slider_value.pack()
-        self.slider.config(command=self.update_slider_value)
-        
-        # Input boxes
-        tk.Label(root, text="Input 1:").pack()
-        self.input1 = tk.Entry(root, width=40)
-        self.input1.pack(pady=5, padx=10)
-        
-        tk.Label(root, text="Input 2:").pack()
-        self.input2 = tk.Entry(root, width=40)
-        self.input2.pack(pady=5, padx=10)
-        
-        # Submit button
-        tk.Button(root, text="Submit", command=self.submit, bg="green", fg="white").pack(pady=20)
-    
-    def browse_image(self, event=None):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")])
-        if file_path:
-            self.load_image(file_path)
-    
-    def drop_image(self, event):
-        # The file path is returned as a string that might be wrapped in braces or quotes
-        # We need to clean it up. TkinterDnD2 usually returns a single path directly 
-        # or a list of paths separated by spaces/braces.
-        file_path = event.data.strip()
-        
-        # Specifically for Windows/macOS where the path might be wrapped in {} or quotes
-        # It's safer to remove these if present.
-        if file_path.startswith('{') and file_path.endswith('}'):
-            file_path = file_path[1:-1]
-        
-        # If multiple files are dropped, we only take the first one
-        if ' ' in file_path:
-             file_path = file_path.split(' ')[0]
-
-        if os.path.isfile(file_path):
-            self.load_image(file_path)
-        else:
-            print(f"Error: Invalid file path dropped: {file_path}")
-
-    def load_image(self, file_path):
-        self.image_path = file_path
-        try:
-            # Note: PIL needs to keep the image object referenced or it will be garbage collected
-            # We open the image and save a reference to it as self.img
-            self.img = Image.open(file_path)
-            
-            # Calculate new size to fit within the label while maintaining aspect ratio
-            w, h = self.img.size
-            max_w, max_h = self.image_label.winfo_width(), self.image_label.winfo_height()
-            
-            # If the window is not yet fully rendered, use a default size (e.g., 400x300)
-            if max_w == 1 and max_h == 1:
-                 max_w, max_h = 400, 300 
-            
-            ratio = min(max_w / w, max_h / h)
-            new_w = int(w * ratio)
-            new_h = int(h * ratio)
-            
-            resized_img = self.img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            
-            self.photo = ImageTk.PhotoImage(resized_img)
-            self.image_label.config(image=self.photo, text="")
-            self.image_label.image = self.photo # Keep a reference!
-            self.root.update_idletasks() # Force update to get accurate dimensions next time
-
-        except Exception as e:
-            print(f"Error loading image: {e}")
-            self.image_label.config(image=None, text="Error loading image.\nTry another file.")
-            self.photo = None
-    
-    def update_slider_value(self, value):
-        self.slider_value.config(text=f"Value: {value}")
-    
-    def submit(self):
-        if not self.image_path:
-            print("Error: Please select an image")
-            return
-        print(f"Image: {self.image_path}")
-        print(f"Slider: {self.slider.get()}")
-        print(f"Input 1: {self.input1.get()}")
-        print(f"Input 2: {self.input2.get()}")
-
-if __name__ == "__main__":
-    # *** IMPORTANT CHANGE: Use TkinterDnD.Tk() instead of tk.Tk() ***
+    # *** IMPORTANT: Use TkinterDnD.Tk() for Drag-and-Drop ***
     root = TkinterDnD.Tk()
     app = ImageProcessorGUI(root)
     root.mainloop()
