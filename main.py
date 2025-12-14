@@ -192,13 +192,18 @@ class ResultScreen(tk.Frame):
         self.setup_result_screen()
 
     def setup_result_screen(self):
-        tk.Label(self, text="Image Preview (Resized)", font=("Arial", 16, "bold")).pack(pady=10)
+        # Frame to center the image and text box
+        center_frame = tk.Frame(self)
+        center_frame.pack(pady=10)
+
+        tk.Label(center_frame, text="Image Preview (Resized)", font=("Arial", 16, "bold")).pack(pady=10)
 
         # 1. Calculate and display the scaled-up preview
-        preview_width = 300 
-        scale_factor = max(1, preview_width // self.resized_image.width)
+        # We need a fixed reference width for consistent sizing
+        PREVIEW_WIDTH_PX = 300 
         
-        # Calculate the actual dimensions of the scaled preview image
+        scale_factor = max(1, PREVIEW_WIDTH_PX // self.resized_image.width)
+        
         display_w = self.resized_image.width * scale_factor
         display_h = self.resized_image.height * scale_factor
         
@@ -208,27 +213,54 @@ class ResultScreen(tk.Frame):
         )
 
         self.photo = ImageTk.PhotoImage(display_img)
-        preview_label = tk.Label(self, image=self.photo, text="")
-        preview_label.pack(pady=10)
+        # We define a fixed size area for the preview for consistent layout
+        preview_label = tk.Label(center_frame, image=self.photo, text="", width=display_w, height=display_h)
+        preview_label.pack(pady=5)
         preview_label.image = self.photo
         
-        # --- NEW BOX: Displaying the Preview Image Dimensions ---
-        tk.Label(self, text="Preview Box Dimensions:").pack(pady=(10, 0))
         
-        # Create a visible box/label to display the preview size
+        # --- TEXT OUTPUT BOX (Same size as preview) ---
+        tk.Label(center_frame, text="Text Output (Placeholder):").pack(pady=(10, 0))
+        
+        # Approximate conversion from pixels to character units (width/height)
+        # Assuming a default font (like Courier) where 1 char width ~ 6-8px, 1 line height ~ 15px.
+        CHAR_WIDTH_PX = 7 # Approximate pixel width per character
+        CHAR_HEIGHT_PX = 15 # Approximate pixel height per line
+
+        text_width_chars = max(1, display_w // CHAR_WIDTH_PX)
+        text_height_lines = max(1, display_h // CHAR_HEIGHT_PX)
+
+        self.text_output = tk.Text(
+            center_frame, 
+            wrap=tk.WORD, 
+            width=text_width_chars, 
+            height=text_height_lines,
+            bg="#f0f0f0",
+            relief=tk.SUNKEN
+        )
+        self.text_output.pack(pady=5)
+        
+        # Insert placeholder text
+        self.text_output.insert(tk.END, 
+            f"This text box is approximately {text_width_chars} characters wide and {text_height_lines} lines high, matching the preview image size.\n\n"
+            "This is where the QR code text output would go."
+        )
+        # --- END TEXT OUTPUT BOX ---
+        
+        # Previous info box for dimensions (kept for completeness)
+        tk.Label(center_frame, text="Preview Area Dimensions:").pack(pady=(10, 0))
         preview_size_box = tk.Label(
-            self, 
-            text=f"Length: {display_w} px, Breadth: {display_h} px",
+            center_frame, 
+            text=f"Width: {display_w} px, Height: {display_h} px",
             bg="white", 
-            relief=tk.SUNKEN, # Gives the label a 'box' appearance
+            relief=tk.SUNKEN, 
             padx=10, 
             pady=5,
             font=("Arial", 10)
         )
         preview_size_box.pack(pady=5)
-        # --- END NEW BOX ---
 
-        tk.Label(self, text=f"Actual Saved Size: ({self.resized_image.width}x{self.resized_image.height}) px").pack(pady=5)
+        tk.Label(center_frame, text=f"Actual Saved Size: ({self.resized_image.width}x{self.resized_image.height}) px").pack(pady=5)
 
         # 2. Button Frame
         button_frame = tk.Frame(self)
