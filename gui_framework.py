@@ -261,10 +261,11 @@ class ImageProcessorGUI:
         self.slider_value.config(text=f"Value: {value}")
 
     # The main processing function, only called by the Refresh button
+ # The main processing function, only called by the Refresh button
     def refresh_matrix(self):
         """
         Processes the image using the current slider value and updates the preview
-        and text output panes.
+        and text output panes, ensuring the resized image fits the pane.
         """
         if not self.logic.current_image:
             self.text_output.delete("1.0", tk.END)
@@ -280,30 +281,42 @@ class ImageProcessorGUI:
             self.current_matrix_image = matrix_image_pil # Store PIL Image for the Download button
 
             # 4. Calculate display parameters based on the new matrix image size (Logic)
-            # Calculated for the size info label, though the matrix visualization itself is removed
             display_w, display_h, text_w, text_h = self.logic.calculate_display_params(matrix_image_pil)
             
             
             # --- Update Preview Pane 2 (Resized Source Image) ---
-            # Max dimensions for the resized image preview to fit within the fixed pane
-            preview_size_2 = (PANE_WIDTH - 20, PANE_HEIGHT - 100) 
+            
+            # Maximum drawable space in Pane 2 (Pane dimensions - padding/labels)
+            # This accounts for the top title and the bottom size_info_label.
+            max_width_drawable = PANE_WIDTH - 40   # 380 - (10*2 padding) - (20 margin for safety)
+            max_height_drawable = PANE_HEIGHT - 90 # 550 - (approx 90px for labels/margins)
+            
+            # Create a copy of the *resized* image for the preview
             source_preview = resized_image_pil.copy()
-            source_preview.thumbnail(preview_size_2)
+            
+            # Scale the image to fit the maximum drawable area while maintaining aspect ratio
+            source_preview.thumbnail((max_width_drawable, max_height_drawable))
             
             self.resized_photo = ImageTk.PhotoImage(source_preview)
+            
+            # Set the image and ensure the label resizes to contain it within the pane
+            # We set the label width/height to the actual image size, but the label's packing (expand=True)
+            # ensures it is centered within the fixed pane space.
             self.resized_preview_label.config(
                 image=self.resized_photo,
-                text=f"Original Image scaled to {resize_dim}x{resize_dim}",
+                text=f"Source Image ({resize_dim}x{resize_dim}) Preview",
                 compound=tk.CENTER,
                 width=source_preview.width,
                 height=source_preview.height,
+                relief=tk.FLAT,
+                bg="lightgray" # Set background of the label to see its boundaries
             )
             self.resized_preview_label.image = self.resized_photo
             
             # --- Update Status Info ---
-            char_w = self.current_matrix_image.width // CELL_SIZE
-            char_h = self.current_matrix_image.height // CELL_SIZE
-            self.size_info_label.config(text=f"Matrix Size: {char_w}x{char_h} chars (Based on {resize_dim}x{resize_dim} source)")
+            char_w = len(matrix[0]) if matrix and matrix[0] else 0
+            char_h = len(matrix) if matrix else 0
+            self.size_info_label.config(text=f"Matrix Size: {char_w}x{char_h} characters (Source: {resize_dim}x{resize_dim} pixels)")
             
             # --- Update Output Pane 3 ---
             self.text_output.delete("1.0", tk.END)
@@ -313,7 +326,7 @@ class ImageProcessorGUI:
             messagebox.showerror("Processing Error", f"An error occurred during matrix generation: {e}")
             self.text_output.delete("1.0", tk.END)
             self.text_output.insert(tk.END, f"Error: {e}")
-
+            
     def copy_text(self):
         """Copies the content of the text widget using Tkinter's clipboard functions."""
         try:
