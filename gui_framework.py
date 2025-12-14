@@ -1,4 +1,3 @@
-# gui_framework.py
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from PIL import Image, ImageTk
@@ -11,9 +10,9 @@ PANE_WIDTH = 380
 PANE_HEIGHT = 550
 PANE_BG = "#f5f5f5"
 
-# --- Tooltip Class (Remains the same) ---
+# --- Tooltip Class ---
 class Tooltip:
-# ... (Keep the Tooltip class code as is) ...
+    """Creates a temporary, non-blocking pop-up message near a widget."""
     def __init__(self, widget, text, delay_ms=3000):
         self.widget = widget
         self.text = text
@@ -62,13 +61,9 @@ class ImageProcessorGUI:
 
         self.logic = ImageProcessorLogic() 
         self.photo = None 
-        self.matrix_photo = None 
-        self.resized_photo = None # New variable for resized image preview
-        self.current_matrix_image = None
+        self.resized_photo = None 
+        self.current_matrix_image = None # PIL Image of the final character matrix (used for Download)
         
-        # Flag to prevent matrix refresh on every slider change
-        self.is_slider_refresh = False 
-
         # --- Top Bar ---
         self.top_bar = tk.Frame(root, height=30)
         self.top_bar.pack(fill=tk.X, padx=10, pady=(5, 0))
@@ -156,7 +151,7 @@ class ImageProcessorGUI:
         tk.Button(self.input_pane, text="Download Matrix Image", command=self.download_image, bg="blue", fg="white", padx=10, pady=5).pack()
 
 
-    # --- PANE 2: PREVIEW (2 Boxes, Fixed Size) ---
+    # --- PANE 2: PREVIEW (Single Box, Fixed Size) ---
     def setup_preview_pane(self, container):
         self.preview_pane = tk.Frame(
             container, 
@@ -171,29 +166,17 @@ class ImageProcessorGUI:
         self.preview_pane.pack(side=tk.LEFT, fill=tk.Y, padx=10)
         self.preview_pane.pack_propagate(False)
 
-        # --- TOP BOX: Matrix Visualization ---
-        tk.Label(self.preview_pane, text="2a. Character Matrix Visualization", font=("Arial", 14, "bold"), bg=PANE_BG).pack(pady=5)
+        # --- SINGLE BOX: Resized Source Image ---
+        tk.Label(self.preview_pane, text="2. Resized Source Image (Source for Matrix)", font=("Arial", 14, "bold"), bg=PANE_BG).pack(pady=5)
         
-        self.matrix_preview_label = tk.Label(
-            self.preview_pane, 
-            text="Matrix visualization (Scaled)",
-            bg="white", 
-            relief=tk.RIDGE,
-            height=12 # Fixed height for the label
-        )
-        self.matrix_preview_label.pack(pady=5, fill=tk.X, expand=True)
-
-        # --- BOTTOM BOX: Resized Source Image ---
-        tk.Label(self.preview_pane, text="2b. Resized Source Image", font=("Arial", 14, "bold"), bg=PANE_BG).pack(pady=10)
-        
+        # This label will expand to fill the available space
         self.resized_preview_label = tk.Label(
             self.preview_pane,
-            text="Original Image (Small, Source)",
+            text="Original Image scaled to matrix size (e.g., 50x50)",
             bg="white",
-            relief=tk.RIDGE,
-            height=8 # Fixed height for the label
+            relief=tk.RIDGE
         )
-        self.resized_preview_label.pack(pady=5, fill=tk.X, expand=True)
+        self.resized_preview_label.pack(pady=5, fill=tk.BOTH, expand=True)
 
         self.size_info_label = tk.Label(self.preview_pane, text="Output size: N/A", bg=PANE_BG)
         self.size_info_label.pack(pady=5)
@@ -228,7 +211,7 @@ class ImageProcessorGUI:
             bg="#e0e0e0"
         ).pack(side=tk.RIGHT)
         
-        # Text Widget for Output with Scrollbars (ScrolledText is simpler than manual Text+Scrollbar)
+        # Text Widget for Output with Scrollbars (ScrolledText is simpler)
         self.text_output = scrolledtext.ScrolledText(
             self.output_pane, 
             wrap=tk.NONE, # Important for ASCII/matrix output
@@ -239,7 +222,7 @@ class ImageProcessorGUI:
         self.text_output.pack(pady=5, fill=tk.BOTH, expand=True)
 
     
-    # --- HANDLERS (UPDATED) ---
+    # --- HANDLERS ---
     def browse_image(self, event=None):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")])
         if file_path:
@@ -257,6 +240,7 @@ class ImageProcessorGUI:
     def _display_loaded_image(self, file_path):
         """Calls logic to load image and updates the UI in the input pane."""
         try:
+            # Load the original image for the small thumbnail preview
             preview_img, _ = self.logic.load_image(file_path)
             
             # Convert PIL image for Tkinter display (small thumbnail for Input Pane)
@@ -268,11 +252,10 @@ class ImageProcessorGUI:
             self.image_label.config(image=None, text="Error loading image.\nClick to browse.")
             self.logic.current_image = None
             
-        # Clear previous matrix output when a new image is loaded
+        # Clear previous outputs when a new image is loaded
         self.text_output.delete("1.0", tk.END)
         self.text_output.insert(tk.END, "New image loaded. Click 'Refresh Matrix' to generate.")
-        self.matrix_preview_label.config(image=None, text="Matrix visualization (Scaled)")
-        self.resized_preview_label.config(image=None, text="Original Image (Small, Source)")
+        self.resized_preview_label.config(image=None, text="Original Image scaled to matrix size (e.g., 50x50)")
     
     def update_slider_value(self, value):
         self.slider_value.config(text=f"Value: {value}")
@@ -294,41 +277,33 @@ class ImageProcessorGUI:
             resized_image_pil = self.logic.process_and_resize(resize_dim)
             matrix, full_text_output = self.logic.generate_character_matrix(resized_image_pil)
             matrix_image_pil = self.logic.create_matrix_image(matrix)
-            self.current_matrix_image = matrix_image_pil # Store PIL Image for download
+            self.current_matrix_image = matrix_image_pil # Store PIL Image for the Download button
 
             # 4. Calculate display parameters based on the new matrix image size (Logic)
+            # Calculated for the size info label, though the matrix visualization itself is removed
             display_w, display_h, text_w, text_h = self.logic.calculate_display_params(matrix_image_pil)
             
-            # --- Update Preview Pane 2a (Matrix Visualization) ---
-            self.matrix_photo = ImageTk.PhotoImage(matrix_image_pil)
-            self.matrix_preview_label.config(
-                image=self.matrix_photo, 
-                text="", 
-                width=display_w, 
-                height=display_h,
-                relief=tk.FLAT
-            )
-            self.matrix_preview_label.image = self.matrix_photo
-
-            # --- Update Preview Pane 2b (Resized Source Image) ---
-            # Create a larger preview of the small source image for 2b
-            preview_size_2b = (150, 150) # Max preview size for this box
+            
+            # --- Update Preview Pane 2 (Resized Source Image) ---
+            # Max dimensions for the resized image preview to fit within the fixed pane
+            preview_size_2 = (PANE_WIDTH - 20, PANE_HEIGHT - 100) 
             source_preview = resized_image_pil.copy()
-            source_preview.thumbnail(preview_size_2b)
+            source_preview.thumbnail(preview_size_2)
+            
             self.resized_photo = ImageTk.PhotoImage(source_preview)
             self.resized_preview_label.config(
                 image=self.resized_photo,
-                text=f"Source Size: {resize_dim}x{resize_dim}",
+                text=f"Original Image scaled to {resize_dim}x{resize_dim}",
+                compound=tk.CENTER,
                 width=source_preview.width,
                 height=source_preview.height,
-                compound=tk.CENTER # Show text over image if it's too small
             )
             self.resized_preview_label.image = self.resized_photo
             
             # --- Update Status Info ---
             char_w = self.current_matrix_image.width // CELL_SIZE
             char_h = self.current_matrix_image.height // CELL_SIZE
-            self.size_info_label.config(text=f"Matrix Size: {char_w}x{char_h} chars | Visualization Size: {display_w}x{display_h} px")
+            self.size_info_label.config(text=f"Matrix Size: {char_w}x{char_h} chars (Based on {resize_dim}x{resize_dim} source)")
             
             # --- Update Output Pane 3 ---
             self.text_output.delete("1.0", tk.END)
@@ -361,3 +336,5 @@ class ImageProcessorGUI:
             self.logic.save_image(self.current_matrix_image)
         except Exception as e:
             messagebox.showerror("Save Error", f"Could not save image: {e}")
+
+            
