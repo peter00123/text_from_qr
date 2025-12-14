@@ -1,12 +1,13 @@
 # gui_framework.py
 import tkinter as tk
-import os
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 from tkinterdnd2 import DND_ALL, TkinterDnD 
-from image_logic import ImageProcessorLogic # Import the logic class
+# Import the logic class AND the required constant CELL_SIZE
+from image_logic import ImageProcessorLogic, CELL_SIZE 
+import os # Necessary for file path checking in drop_image
 
-# --- Tooltip Class (Remains the same, kept in GUI file as it's UI specific) ---
+# --- Tooltip Class (Remains the same) ---
 class Tooltip:
     """Creates a temporary, non-blocking pop-up message near a widget."""
     def __init__(self, widget, text, delay_ms=3000):
@@ -46,6 +47,8 @@ class Tooltip:
 
 
 class ImageProcessorGUI:
+    # ----------------------------------------------------
+    # CORRECTED __init__ METHOD
     def __init__(self, root):
         self.root = root
         self.root.title("Image Processor")
@@ -67,6 +70,7 @@ class ImageProcessorGUI:
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
         self.setup_main_screen(self.main_frame)
+    # ----------------------------------------------------
         
     def setup_top_bar(self, frame):
         tk.Label(frame).pack(side=tk.LEFT, expand=True) 
@@ -74,7 +78,7 @@ class ImageProcessorGUI:
         self.how_to_use_button = tk.Button(
             frame, 
             text="ⓘ How to Use", 
-            command=self.logic.open_portfolio_link, # Calls logic method
+            command=self.logic.open_portfolio_link,
             relief=tk.FLAT, 
             fg="blue"
         )
@@ -147,6 +151,8 @@ class ImageProcessorGUI:
     def update_slider_value(self, value):
         self.slider_value.config(text=f"Value: {value}")
     
+    # ----------------------------------------------------
+    # CORRECTED/COMPLETE submit METHOD
     def submit(self):
         if not self.logic.current_image:
             messagebox.showerror("Error", "Please select an image before submitting.")
@@ -154,23 +160,34 @@ class ImageProcessorGUI:
             
         resize_dim = self.slider.get()
         try:
-            # Call logic to process the image and calculate UI dimensions
-            resized_image, display_w, display_h, text_w, text_h = self.logic.process_and_resize(resize_dim)
+            # 1. Resize the image (Logic)
+            resized_image = self.logic.process_and_resize(resize_dim)
+            
+            # 2. Generate the matrix (Logic)
+            matrix, full_text_output = self.logic.generate_character_matrix(resized_image)
+            
+            # 3. Create the matrix image visualization (Logic)
+            matrix_image = self.logic.create_matrix_image(matrix)
+            
+            # 4. Calculate display parameters based on the new matrix image size (Logic)
+            display_w, display_h, text_w, text_h = self.logic.calculate_display_params(matrix_image)
             
             self.main_frame.pack_forget()
             
             self.result_screen = ResultScreen(
                 self.root, 
-                self.logic, # Pass the logic instance
-                resized_image, 
+                self.logic, 
+                matrix_image,             # Pass the visual matrix image for display
+                full_text_output,         # Pass the text matrix string for the text box
                 display_w, display_h, text_w, text_h,
                 self.go_back_to_main
             )
             self.result_screen.pack(fill=tk.BOTH, expand=True)
             
         except Exception as e:
-            messagebox.showerror("Processing Error", f"Could not resize image: {e}")
+            messagebox.showerror("Processing Error", f"An error occurred: {e}")
             self.main_frame.pack(fill=tk.BOTH, expand=True)
+    # ----------------------------------------------------
 
     def go_back_to_main(self):
         self.result_screen.pack_forget()
@@ -181,11 +198,12 @@ class ImageProcessorGUI:
 
 
 class ResultScreen(tk.Frame):
-    """A separate screen to display the resized image and save/redo buttons."""
-    def __init__(self, master, logic, resized_image, display_w, display_h, text_w, text_h, redo_callback):
+    """A separate screen to display the matrix image and text matrix output."""
+    def __init__(self, master, logic, matrix_image, full_text_output, display_w, display_h, text_w, text_h, redo_callback):
         super().__init__(master)
-        self.logic = logic # Store the logic instance
-        self.resized_image = resized_image
+        self.logic = logic 
+        self.matrix_image = matrix_image # This is the PIL Image of the matrix
+        self.full_text_output = full_text_output # This is the string representation
         self.display_w = display_w
         self.display_h = display_h
         self.text_w = text_w
@@ -197,19 +215,19 @@ class ResultScreen(tk.Frame):
     def copy_text(self):
         """Copies the content of the text widget using Tkinter's clipboard functions."""
         try:
-            text_to_copy = self.text_output.get("1.0", tk.END).strip()
+            # Use the string stored in the instance, which is the direct matrix output
+            text_to_copy = self.full_text_output 
             
-            # Tkinter clipboard commands
             self.clipboard_clear()
             self.clipboard_append(text_to_copy)
-            messagebox.showinfo("Copied", "Text content copied to clipboard!")
+            messagebox.showinfo("Copied", "Matrix content copied to clipboard!")
         except Exception as e:
             messagebox.showerror("Copy Error", f"Could not copy text: {e}")
 
     def download_image(self):
         """Calls logic to save the image."""
         try:
-            self.logic.save_image(self.resized_image)
+            self.logic.save_image(self.matrix_image)
         except Exception as e:
             messagebox.showerror("Save Error", f"Could not save image: {e}")
 
@@ -218,15 +236,10 @@ class ResultScreen(tk.Frame):
         center_frame = tk.Frame(self)
         center_frame.pack(pady=10)
 
-        tk.Label(center_frame, text="Image Preview (Resized)", font=("Arial", 16, "bold")).pack(pady=10)
+        tk.Label(center_frame, text="Character Matrix Preview", font=("Arial", 16, "bold")).pack(pady=10)
 
         # 1. Display the scaled-up preview
-        display_img = self.resized_image.resize(
-            (self.display_w, self.display_h), 
-            Image.Resampling.NEAREST
-        )
-
-        self.photo = ImageTk.PhotoImage(display_img)
+        self.photo = ImageTk.PhotoImage(self.matrix_image)
         preview_label = tk.Label(center_frame, image=self.photo, text="", width=self.display_w, height=self.display_h)
         preview_label.pack(pady=5)
         preview_label.image = self.photo
@@ -236,9 +249,8 @@ class ResultScreen(tk.Frame):
         text_control_frame = tk.Frame(center_frame)
         text_control_frame.pack(pady=(10, 0))
 
-        tk.Label(text_control_frame, text="Text Output (Placeholder):").pack(side=tk.LEFT)
+        tk.Label(text_control_frame, text="Matrix Text Output:").pack(side=tk.LEFT)
         
-        # New Copy Button
         tk.Button(
             text_control_frame, 
             text="Copy Text", 
@@ -256,11 +268,8 @@ class ResultScreen(tk.Frame):
         )
         self.text_output.pack(pady=5)
         
-        # Placeholder text
-        self.text_output.insert(tk.END, 
-            f"This text box is approximately {self.text_w} characters wide and {self.text_h} lines high, matching the preview image size.\n\n"
-            "This is where the QR code text output would go."
-        )
+        # Insert the actual character matrix string
+        self.text_output.insert(tk.END, self.full_text_output)
         # --- END TEXT OUTPUT BOX & COPY BUTTON ---
         
         # Previous info box for dimensions (kept for completeness)
@@ -276,7 +285,8 @@ class ResultScreen(tk.Frame):
         )
         preview_size_box.pack(pady=5)
 
-        tk.Label(center_frame, text=f"Actual Saved Size: ({self.resized_image.width}x{self.resized_image.height}) px").pack(pady=5)
+        # Using CELL_SIZE imported from image_logic
+        tk.Label(center_frame, text=f"Source Matrix Size: ({self.matrix_image.width // CELL_SIZE}x{self.matrix_image.height // CELL_SIZE}) chars").pack(pady=5)
 
         # 2. Button Frame
         button_frame = tk.Frame(self)
@@ -291,7 +301,7 @@ class ResultScreen(tk.Frame):
 
         tk.Button(
             button_frame, 
-            text="Download & Save", 
-            command=self.download_image, # Calls the ResultScreen method, which calls logic
+            text="Download & Save Matrix Image", 
+            command=self.download_image, 
             bg="blue", fg="white", padx=20, pady=10
         ).pack(side=tk.LEFT, padx=20)
